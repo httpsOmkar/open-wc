@@ -5,7 +5,9 @@ const indexHTML = require('rollup-plugin-index-html');
 const cpy = require('rollup-plugin-cpy');
 const fs = require('fs-extra');
 const path = require('path');
+const MagicString = require('magic-string');
 const createMdxToJsTransformer = require('../shared/createMdxToJsTransformer');
+const { createOrderedExports } = require('../shared/createOrderedExports');
 const createAssets = require('../shared/getAssets');
 
 const transformMdxToJs = createMdxToJsTransformer(false);
@@ -19,17 +21,41 @@ const transformMdxPlugin = {
   },
 };
 
+const injectOrderedExportsPlugin = storyFiles => ({
+  async transform(code, id) {
+    if (storyFiles.includes(id)) {
+      const orderedExports = await createOrderedExports(code);
+      if (!orderedExports) {
+        return null;
+      }
+
+      // @ts-ignore
+      const ms = new MagicString(code);
+      ms.append(`\n\n${orderedExports}`);
+
+      return {
+        code: ms.toString(),
+        map: ms.generateMap({ hires: true }),
+      };
+    }
+    return null;
+  },
+});
+
 async function buildManager(outputDir, assets) {
   await fs.writeFile(path.join(outputDir, 'index.html'), assets.indexHTML);
   await fs.writeFile(path.join(outputDir, assets.managerScriptSrc), assets.managerCode);
 }
 
-async function buildPreview(outputDir, assets) {
+async function buildPreview(outputDir, assets, storyUrls) {
   const configs = createCompatibilityConfig({
     input: 'noop',
     extensions: [...DEFAULT_EXTENSIONS, 'mdx'],
     plugins: { indexHTML: false },
   });
+
+  configs[0].treeshake = false;
+  configs[1].treeshake = false;
 
   configs[0].output.dir = path.join(outputDir, 'legacy');
   configs[1].output.dir = outputDir;
@@ -50,6 +76,7 @@ async function buildPreview(outputDir, assets) {
       },
     }),
     transformMdxPlugin,
+    injectOrderedExportsPlugin(storyUrls),
   );
 
   configs[1].plugins.unshift(
@@ -68,6 +95,7 @@ async function buildPreview(outputDir, assets) {
       },
     }),
     transformMdxPlugin,
+    injectOrderedExportsPlugin(storyUrls),
     cpy({
       files: ['**/custom-elements.json'],
       dest: outputDir,
@@ -83,11 +111,11 @@ async function buildPreview(outputDir, assets) {
   await bundles[1].write(configs[1].output);
 }
 
-module.exports = async function build({ storybookConfigDir, outputDir, storyUrls }) {
+module.exports = async function build({ storybookConfigDir, outputDir, storyUrls, storyFiles }) {
   const assets = createAssets({ storybookConfigDir, storyUrls });
 
   await fs.remove(outputDir);
   await fs.mkdirp(outputDir);
 
-  await Promise.all([buildManager(outputDir, assets), buildPreview(outputDir, assets)]);
+  await Promise.all([buildManager(outputDir, assets), buildPreview(outputDir, assets, storyFiles)]);
 };
