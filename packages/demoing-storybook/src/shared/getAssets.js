@@ -16,13 +16,24 @@ module.exports = function getAssets({ storybookConfigDir, storyUrls }) {
   const previewBodyPath = path.join(process.cwd(), storybookConfigDir, 'preview-body.html');
   const previewHeadPath = path.join(process.cwd(), storybookConfigDir, 'preview-head.html');
 
-  const managerCode = fs.readFileSync(
+  let managerCode = fs.readFileSync(
     require.resolve('@open-wc/storybook-prebuilt/dist/manager.js'),
     'utf-8',
   );
+  const managerSourceMap = fs.readFileSync(
+    require.resolve('@open-wc/storybook-prebuilt/dist/manager.js.map'),
+    'utf-8',
+  );
+
   const managerHash = createContentHash(managerCode);
   const managerScriptUrl = `/storybook-manager-${managerHash}.js`;
+  const managerSourceMapUrl = `/storybook-manager-${managerHash}.js.map`;
   const managerScriptSrc = `.${managerScriptUrl}`;
+
+  managerCode = managerCode.replace(
+    '//# sourceMappingURL=manager.js.map',
+    `//# sourceMappingURL=${managerSourceMapUrl}`,
+  );
 
   let indexHTML = fs.readFileSync(managerPath, 'utf-8');
   if (fs.existsSync(managerHeadPath)) {
@@ -64,6 +75,8 @@ module.exports = function getAssets({ storybookConfigDir, storyUrls }) {
     managerCode,
     managerScriptSrc,
     managerScriptUrl,
+    managerSourceMap,
+    managerSourceMapUrl,
     indexHTML,
     iframeHTML,
   };
